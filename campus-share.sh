@@ -1,12 +1,8 @@
 #!/usr/bin/env bash
 
-# campus-share.sh — Large File Splitter/Joiner for University Resources
-
 PARTS_DIR="Parts"
-OUTPUT_DIR="Output"
+SOURCE_DIR="Source"
 DEFAULT_CHUNK_MB=90
-
-mkdir -p "$PARTS_DIR" "$OUTPUT_DIR"
 
 # Colors
 GREEN=$(tput setaf 2)
@@ -17,7 +13,6 @@ MAGENTA=$(tput setaf 5)
 BOLD=$(tput bold)
 RESET=$(tput sgr0)
 
-# Banner
 print_banner() {
     clear
     echo -e "${MAGENTA}${BOLD}
@@ -27,10 +22,9 @@ print_banner() {
  | |__| (_| | | | | | | |_) | |_| \__ \___) | | | | (_| | | |  __/
   \____\__,_|_| |_| |_| .__/ \__,_|___/____/|_| |_|\__,_|_|  \___|
                       |_|                                         
-    ${RESET}"
+${RESET}"
 }
 
-# Helper: format size
 format_size() {
     local bytes=$1
     local units=(B KB MB GB TB)
@@ -42,74 +36,109 @@ format_size() {
     echo "${bytes} ${units[$i]}"
 }
 
-# Split function
-split_file() {
-    if [ "$(ls -A "$PARTS_DIR")" ]; then
-        read -p "⚠️  '$PARTS_DIR' is not empty. Overwrite? (y/N): " confirm
-        if [[ ! $confirm =~ ^[Yy]$ ]]; then
-            echo "❌ Split cancelled."
-            return
+get_folder_path() {
+    local default_folder="$1"
+    local folder_path
+
+    if [ -d "$default_folder" ]; then
+        folder_path="$default_folder"
+    else
+        echo "Default folder '$default_folder' not found."
+        read -rp "Enter full path to the folder: " folder_path
+        if [ ! -d "$folder_path" ]; then
+            echo "${RED}❌ Folder does not exist. Exiting.${RESET}"
+            exit 1
         fi
-        rm -rf "$PARTS_DIR" && mkdir "$PARTS_DIR"
     fi
 
-    read -p "Enter path to the large file: " file_path
-    if [ ! -f "$file_path" ]; then
-        echo "❌ File does not exist."
-        return
-    fi
+    echo "$folder_path"
+}
 
-    read -p "Chunk size in MB (default $DEFAULT_CHUNK_MB): " chunk_mb
+split_folder() {
+    # Get source folder (where original files are)
+    local source_folder
+    source_folder=$(get_folder_path "$SOURCE_DIR")
+
+    # Confirm or create Parts folder (where parts go)
+    if [ -d "$PARTS_DIR" ]; then
+        if [ "$(ls -A "$PARTS_DIR")" ]; then
+            read -rp "⚠️  '$PARTS_DIR' is not empty. Overwrite? (y/N): " confirm
+            if [[ ! $confirm =~ ^[Yy]$ ]]; then
+                echo "${RED}❌ Split cancelled.${RESET}"
+                return
+            fi
+            rm -rf "$PARTS_DIR"
+        fi
+    fi
+    mkdir -p "$PARTS_DIR"
+
+    # Get chunk size
+    read -rp "Chunk size in MB (default $DEFAULT_CHUNK_MB): " chunk_mb
     chunk_mb=${chunk_mb:-$DEFAULT_CHUNK_MB}
-
     chunk_size_bytes=$((chunk_mb * 1024 * 1024))
 
-    split -b "$chunk_size_bytes" "$file_path" "$PARTS_DIR/$(basename "$file_path").part" || {
-        echo "❌ Failed to split file."
-        return
-    }
+    local total_size=0
+    local total_parts=0
 
-    total_size=$(stat -c%s "$file_path")
-    parts_count=$(ls "$PARTS_DIR" | wc -l)
-    echo -e "✅ ${GREEN}Split complete${RESET}: $parts_count parts created in '${PARTS_DIR}'"
-    echo "📦 Total size: $(format_size $total_size)"
-}
-
-# Join function
-join_files() {
-    if [ ! "$(ls -A "$PARTS_DIR")" ]; then
-        echo "❌ No part files found in '$PARTS_DIR'."
-        return
-    fi
-
-    read -p "Enter output file name: " output_name
-    if [ -z "$output_name" ]; then
-        echo "❌ Invalid output name."
-        return
-    fi
-
-    output_path="$OUTPUT_DIR/$output_name"
-    if [ -f "$output_path" ]; then
-        read -p "⚠️  '$output_path' exists. Overwrite? (y/N): " confirm
-        if [[ ! $confirm =~ ^[Yy]$ ]]; then
-            echo "❌ Join cancelled."
-            return
+    for file in "$source_folder"/*; do
+        if [ -f "$file" ]; then
+            base_name=$(basename "$file")
+            # split with suffix length 4 (partaa, partab, ...)
+            split -b "$chunk_size_bytes" -d --additional-suffix=".part" "$file" "$PARTS_DIR/${base_name}.part"
+            file_size=$(stat -c%s "$file")
+            total_size=$((total_size + file_size))
         fi
-    fi
+    done
 
-    cat "$PARTS_DIR"/* > "$output_path" || {
-        echo "❌ Failed to join files."
-        return
-    }
-
-    total_size=$(stat -c%s "$output_path")
-    echo -e "✅ ${GREEN}Join complete${RESET}: '$output_name' created in '${OUTPUT_DIR}'"
-    echo "📦 Total size: $(format_size $total_size)"
+    total_parts=$(ls "$PARTS_DIR" | wc -l)
+    echo -e "✅ ${GREEN}Split complete${RESET}: $total_parts parts created in '${PARTS_DIR}'"
+    echo "📦 Total size processed: $(format_size "$total_size")"
 }
 
-# Menu with arrow keys
+join_parts() {
+    # Get parts folder (where parts are)
+    local parts_folder
+    parts_folder=$(get_folder_path "$PARTS_DIR")
+
+    if [ ! "$(ls -A "$parts_folder")" ]; then
+        echo "${RED}❌ No part files found in '$parts_folder'.${RESET}"
+        return
+    fi
+
+    # Confirm or create Source folder (where joined files go)
+    if [ -d "$SOURCE_DIR" ]; then
+        if [ "$(ls -A "$SOURCE_DIR")" ]; then
+            read -rp "⚠️  '$SOURCE_DIR' folder is not empty. Overwrite files if duplicates? (y/N): " confirm
+            if [[ ! $confirm =~ ^[Yy]$ ]]; then
+                echo "${RED}❌ Merge cancelled.${RESET}"
+                return
+            fi
+        fi
+    else
+        mkdir -p "$SOURCE_DIR"
+    fi
+
+    # Find unique base filenames before ".part"
+    base_names=$(ls "$parts_folder" | sed -E 's/(.+)\.part.*/\1/' | sort -u)
+
+    for base in $base_names; do
+        output_file="$SOURCE_DIR/$base"
+        if [ -f "$output_file" ]; then
+            read -rp "⚠️  '$output_file' exists. Overwrite? (y/N): " confirm
+            if [[ ! $confirm =~ ^[Yy]$ ]]; then
+                echo "${YELLOW}Skipping $base${RESET}"
+                continue
+            fi
+        fi
+
+        cat "$parts_folder"/"$base".part* > "$output_file"
+        size=$(stat -c%s "$output_file")
+        echo -e "✅ ${GREEN}Merged${RESET}: $base → '$SOURCE_DIR' ($(format_size "$size"))"
+    done
+}
+
 show_menu() {
-    local options=("Split a file into parts" "Join parts into a single file" "Exit")
+    local options=("Split contents of Source folder" "Merge parts from Parts folder" "Exit")
     local selected=0
     local key
 
@@ -118,7 +147,7 @@ show_menu() {
         echo "${BOLD}${CYAN}Use ↑ and ↓ arrows, Enter to select${RESET}"
         echo
         for i in "${!options[@]}"; do
-            if [ "$i" -eq "$selected" ]; then
+            if [[ $i -eq $selected ]]; then
                 echo " ${CYAN}> ${options[$i]}${RESET}"
             else
                 echo "   ${options[$i]}"
@@ -137,8 +166,8 @@ show_menu() {
             fi
         elif [[ $key == "" ]]; then
             case $selected in
-                0) split_file ;;
-                1) join_files ;;
+                0) split_folder ;;
+                1) join_parts ;;
                 2) echo "👋 Goodbye!"; exit 0 ;;
             esac
             echo -e "\nPress Enter to return to menu..."
