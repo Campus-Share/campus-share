@@ -143,9 +143,11 @@ show_menu() {
         echo
         for i in "${!options[@]}"; do
             if [[ $i -eq $selected ]]; then
-                echo " ${CYAN}> ${options[$i]}${RESET}"
+                # Selected option: filled circle and cyan highlight
+                echo " ${CYAN}● ${options[$i]}${RESET}"
             else
-                echo "   ${options[$i]}"
+                # Unselected option: hollow circle
+                echo " ○ ${options[$i]}"
             fi
         done
 
