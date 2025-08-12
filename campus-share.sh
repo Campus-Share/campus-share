@@ -2,7 +2,7 @@
 
 PARTS_DIR="Parts"
 SOURCE_DIR="Source"
-DEFAULT_CHUNK_MB=90
+CHUNK_MB=25  # fixed chunk size 25MB
 
 # Colors
 GREEN=$(tput setaf 2)
@@ -58,6 +58,7 @@ split_folder() {
     local source_folder
     source_folder=$(get_folder_path "$SOURCE_DIR")
 
+    # Prepare parts folder before splitting
     if [ -d "$PARTS_DIR" ]; then
         if [ "$(ls -A "$PARTS_DIR")" ]; then
             read -rp "⚠️  '$PARTS_DIR' is not empty. Overwrite? (y/N): " confirm
@@ -70,9 +71,7 @@ split_folder() {
     fi
     mkdir -p "$PARTS_DIR"
 
-    read -rp "Chunk size in MB (default $DEFAULT_CHUNK_MB): " chunk_mb
-    chunk_mb=${chunk_mb:-$DEFAULT_CHUNK_MB}
-    chunk_size_bytes=$((chunk_mb * 1024 * 1024))
+    local chunk_size_bytes=$((CHUNK_MB * 1024 * 1024))
 
     local total_size=0
 
@@ -143,10 +142,8 @@ show_menu() {
         echo
         for i in "${!options[@]}"; do
             if [[ $i -eq $selected ]]; then
-                # Selected option: filled circle and cyan highlight
                 echo " ${CYAN}● ${options[$i]}${RESET}"
             else
-                # Unselected option: hollow circle
                 echo " ○ ${options[$i]}"
             fi
         done
