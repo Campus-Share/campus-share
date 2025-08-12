@@ -55,36 +55,32 @@ get_folder_path() {
 }
 
 split_folder() {
-    # Get source folder (where original files are)
     local source_folder
     source_folder=$(get_folder_path "$SOURCE_DIR")
 
-    # Confirm or create Parts folder (where parts go)
     if [ -d "$PARTS_DIR" ]; then
         if [ "$(ls -A "$PARTS_DIR")" ]; then
             read -rp "⚠️  '$PARTS_DIR' is not empty. Overwrite? (y/N): " confirm
             if [[ ! $confirm =~ ^[Yy]$ ]]; then
                 echo "${RED}❌ Split cancelled.${RESET}"
-                return
+                exit 0
             fi
             rm -rf "$PARTS_DIR"
         fi
     fi
     mkdir -p "$PARTS_DIR"
 
-    # Get chunk size
     read -rp "Chunk size in MB (default $DEFAULT_CHUNK_MB): " chunk_mb
     chunk_mb=${chunk_mb:-$DEFAULT_CHUNK_MB}
     chunk_size_bytes=$((chunk_mb * 1024 * 1024))
 
     local total_size=0
-    local total_parts=0
 
     for file in "$source_folder"/*; do
         if [ -f "$file" ]; then
             base_name=$(basename "$file")
-            # split with suffix length 4 (partaa, partab, ...)
-            split -b "$chunk_size_bytes" -d --additional-suffix=".part" "$file" "$PARTS_DIR/${base_name}.part"
+            split -b "$chunk_size_bytes" -d --suffix-length=4 \
+                "$file" "$PARTS_DIR/${base_name}.part"
             file_size=$(stat -c%s "$file")
             total_size=$((total_size + file_size))
         fi
@@ -93,33 +89,31 @@ split_folder() {
     total_parts=$(ls "$PARTS_DIR" | wc -l)
     echo -e "✅ ${GREEN}Split complete${RESET}: $total_parts parts created in '${PARTS_DIR}'"
     echo "📦 Total size processed: $(format_size "$total_size")"
+    exit 0
 }
 
 join_parts() {
-    # Get parts folder (where parts are)
     local parts_folder
     parts_folder=$(get_folder_path "$PARTS_DIR")
 
     if [ ! "$(ls -A "$parts_folder")" ]; then
         echo "${RED}❌ No part files found in '$parts_folder'.${RESET}"
-        return
+        exit 1
     fi
 
-    # Confirm or create Source folder (where joined files go)
     if [ -d "$SOURCE_DIR" ]; then
         if [ "$(ls -A "$SOURCE_DIR")" ]; then
             read -rp "⚠️  '$SOURCE_DIR' folder is not empty. Overwrite files if duplicates? (y/N): " confirm
             if [[ ! $confirm =~ ^[Yy]$ ]]; then
                 echo "${RED}❌ Merge cancelled.${RESET}"
-                return
+                exit 0
             fi
         fi
     else
         mkdir -p "$SOURCE_DIR"
     fi
 
-    # Find unique base filenames before ".part"
-    base_names=$(ls "$parts_folder" | sed -E 's/(.+)\.part.*/\1/' | sort -u)
+    base_names=$(ls "$parts_folder" | sed -E 's/(.+)\.part[0-9]{4}$/\1/' | sort -u)
 
     for base in $base_names; do
         output_file="$SOURCE_DIR/$base"
@@ -131,10 +125,11 @@ join_parts() {
             fi
         fi
 
-        cat "$parts_folder"/"$base".part* > "$output_file"
+        cat $(ls "$parts_folder"/"$base".part* | sort) > "$output_file"
         size=$(stat -c%s "$output_file")
         echo -e "✅ ${GREEN}Merged${RESET}: $base → '$SOURCE_DIR' ($(format_size "$size"))"
     done
+    exit 0
 }
 
 show_menu() {
@@ -170,8 +165,6 @@ show_menu() {
                 1) join_parts ;;
                 2) echo "👋 Goodbye!"; exit 0 ;;
             esac
-            echo -e "\nPress Enter to return to menu..."
-            read
         fi
     done
 }
