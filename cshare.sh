@@ -2,7 +2,7 @@
 
 PARTS_DIR="Parts"
 SOURCE_DIR="Source"
-CHUNK_MB=25  # fixed chunk size 25MB
+CHUNK_SIZE_MB=25    # change 25 to whatever size you want
 
 # Colors
 GREEN=$(tput setaf 2)
@@ -21,7 +21,7 @@ print_banner() {
  | |   / _\` | '_ \` _ \| '_ \| | | / __\___ \| '_ \ / _\` | '__/ _ \\
  | |__| (_| | | | | | | |_) | |_| \__ \___) | | | | (_| | | |  __/
   \____\__,_|_| |_| |_| .__/ \__,_|___/____/|_| |_|\__,_|_|  \___|
-                      |_|                                         
+                     |_|
 ${RESET}"
 }
 
@@ -58,7 +58,12 @@ split_folder() {
     local source_folder
     source_folder=$(get_folder_path "$SOURCE_DIR")
 
-    # Prepare parts folder before splitting
+    if [ ! -d "$source_folder" ]; then
+        echo "${RED}❌ Source folder does not exist.${RESET}"
+        exit 1
+    fi
+
+    # Prepare parts folder
     if [ -d "$PARTS_DIR" ]; then
         if [ "$(ls -A "$PARTS_DIR")" ]; then
             read -rp "⚠️  '$PARTS_DIR' is not empty. Overwrite? (y/N): " confirm
@@ -71,21 +76,20 @@ split_folder() {
     fi
     mkdir -p "$PARTS_DIR"
 
-    local chunk_size_bytes=$((CHUNK_MB * 1024 * 1024))
-
+    local chunk_size_bytes=$((CHUNK_SIZE_MB * 1024 * 1024))
     local total_size=0
 
-    for file in "$source_folder"/*; do
-        if [ -f "$file" ]; then
-            base_name=$(basename "$file")
-            split -b "$chunk_size_bytes" -d --suffix-length=4 \
-                "$file" "$PARTS_DIR/${base_name}.part"
-            file_size=$(stat -c%s "$file")
-            total_size=$((total_size + file_size))
-        fi
+    # Recursively split all files
+    find "$source_folder" -type f | while read -r file; do
+        rel_path="${file#$source_folder/}"
+        out_dir="$PARTS_DIR/$(dirname "$rel_path")"
+        mkdir -p "$out_dir"
+        split -b "$chunk_size_bytes" -d --additional-suffix=.part "$file" "$out_dir/$(basename "$file").part"
+        file_size=$(stat -c%s "$file")
+        total_size=$((total_size + file_size))
     done
 
-    total_parts=$(ls "$PARTS_DIR" | wc -l)
+    total_parts=$(find "$PARTS_DIR" -type f | wc -l)
     echo -e "✅ ${GREEN}Split complete${RESET}: $total_parts parts created in '${PARTS_DIR}'"
     echo "📦 Total size processed: $(format_size "$total_size")"
     exit 0
@@ -95,39 +99,40 @@ join_parts() {
     local parts_folder
     parts_folder=$(get_folder_path "$PARTS_DIR")
 
-    if [ ! "$(ls -A "$parts_folder")" ]; then
-        echo "${RED}❌ No part files found in '$parts_folder'.${RESET}"
+    if [ ! -d "$parts_folder" ]; then
+        echo "${RED}❌ Parts folder does not exist.${RESET}"
         exit 1
     fi
 
+    # Prepare output folder
     if [ -d "$SOURCE_DIR" ]; then
         if [ "$(ls -A "$SOURCE_DIR")" ]; then
-            read -rp "⚠️  '$SOURCE_DIR' folder is not empty. Overwrite files if duplicates? (y/N): " confirm
+            read -rp "⚠️  '$SOURCE_DIR' folder is not empty. Overwrite? (y/N): " confirm
             if [[ ! $confirm =~ ^[Yy]$ ]]; then
                 echo "${RED}❌ Merge cancelled.${RESET}"
                 exit 0
             fi
+            rm -rf "$SOURCE_DIR"
         fi
-    else
-        mkdir -p "$SOURCE_DIR"
     fi
+    mkdir -p "$SOURCE_DIR"
 
-    base_names=$(ls "$parts_folder" | sed -E 's/(.+)\.part[0-9]{4}$/\1/' | sort -u)
+    # Find all unique base file paths
+    mapfile -t base_files < <(find "$parts_folder" -type f -name "*.part" | sed -E 's/\.part[0-9]+\.part$//' | sort -u)
 
-    for base in $base_names; do
-        output_file="$SOURCE_DIR/$base"
-        if [ -f "$output_file" ]; then
-            read -rp "⚠️  '$output_file' exists. Overwrite? (y/N): " confirm
-            if [[ ! $confirm =~ ^[Yy]$ ]]; then
-                echo "${YELLOW}Skipping $base${RESET}"
-                continue
-            fi
-        fi
+    for base in "${base_files[@]}"; do
+        rel_path="${base#$parts_folder/}"
+        mkdir -p "$SOURCE_DIR/$(dirname "$rel_path")"
 
-        cat $(ls "$parts_folder"/"$base".part* | sort) > "$output_file"
-        size=$(stat -c%s "$output_file")
-        echo -e "✅ ${GREEN}Merged${RESET}: $base → '$SOURCE_DIR' ($(format_size "$size"))"
+        # THIS IS THE CORRECTED, ROBUST COMMAND FOR MERGING
+        # It now correctly handles spaces and other special characters in filenames.
+        find "$parts_folder" -type f -name "$(basename "$base").part*.part" -print0 | sort -zV | xargs -0 cat > "$SOURCE_DIR/$rel_path"
+
+        size=$(stat -c%s "$SOURCE_DIR/$rel_path")
+        echo -e "🔄 Reconstructed: $rel_path ($(format_size "$size"))"
     done
+
+    echo -e "✅ ${GREEN}Merge complete${RESET}: files restored to '$SOURCE_DIR'"
     exit 0
 }
 
