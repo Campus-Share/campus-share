@@ -15,16 +15,43 @@ cd campus-share
 
 # Move the script to a folder in your PATH
 # /usr/local/bin is standard for system-wide executables
-sudo mv ./cshare.sh /usr/local/bin/cshare.sh
+sudo mv ./cshare.sh /usr/local/bin/cshare
 
 # Make the script executable
-sudo chmod +x /usr/local/bin/cshare.sh
+sudo chmod +x /usr/local/bin/cshare
 ```
+
+Finally, add the appropriate export to your terminal configuration.
+
+bash:
+**Add /usr/local/bin to your PATH if it's not already included.**
+
+For **zsh** users:
+
+```bash
+# Add /usr/local/bin to your PATH if not present
+if ! echo $PATH | grep -q "/usr/local/bin"; then
+  echo 'export PATH="/usr/local/bin:$PATH"' >> ~/.zshrc
+  source ~/.zshrc
+fi
+```
+
+For **bash** users:
+
+```bash
+# Add /usr/local/bin to your PATH if not present
+if ! echo $PATH | grep -q "/usr/local/bin"; then
+  echo 'export PATH="/usr/local/bin:$PATH"' >> ~/.bashrc
+  source ~/.bashrc
+fi
+```
+
+> **Note:** Only add this line if `/usr/local/bin` is not already in your PATH. Reload your terminal or run `source ~/.zshrc` or `source ~/.bashrc` after making changes.
 
 ✅ **Done!** After you reload your terminal, you can now run the tool from anywhere by typing:
 
 ```bash
-cshare.sh
+cshare
 ```
 
 ## Script Execution
