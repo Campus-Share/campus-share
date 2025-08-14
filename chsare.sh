@@ -132,7 +132,7 @@ join_parts() {
 }
 
 show_menu() {
-    local options=("Split contents of Source folder" "Merge parts from Parts folder" "Exit")
+    local options=("Split contents of source folder" "Merge parts from parts folder" "Exit")
     local selected=0
     local key
 
