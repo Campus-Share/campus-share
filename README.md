@@ -15,7 +15,7 @@ cd campus-share
 
 # Move the script to a folder in your PATH
 # /usr/local/bin is standard for system-wide executables
-sudo mv cshare.sh /usr/local/bin/cshare.sh
+sudo mv ./cshare.sh /usr/local/bin/cshare.sh
 
 # Make the script executable
 sudo chmod +x /usr/local/bin/cshare.sh
